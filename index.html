@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library Sekolah</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .login-card {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #fde4e4;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #f472b6;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #ec4899;
+        }
+    </style>
+</head>
+<body class="bg-pink-50 text-gray-800">
+
+    <div id="app" class="min-h-screen transition-all duration-500">
+        <!-- Konten Aplikasi akan dirender di sini oleh JavaScript -->
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = document.getElementById('app');
+            let state = {
+                currentUser: null,
+                books: [],
+                users: [],
+                loans: [],
+                activeAdminTab: 'dashboard',
+                studentSearchQuery: '',
+                studentCategoryFilter: 'Semua'
+            };
+
+            // ===== DATABASE & STATE MANAGEMENT =====
+            function initializeData() {
+                const defaultData = {
+                    users: [
+                        { id: 'admin', username: 'jihannikenfaris', password: '12345678', role: 'admin' }
+                    ],
+                    books: [
+                        { id: 1, title: 'Laskar Pelangi', author: 'Andrea Hirata', category: 'Novel', rating: 4.8, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Laskar+Pelangi', fileUrl: '#', isAvailable: true },
+                        { id: 2, title: 'Bumi Manusia', author: 'Pramoedya Ananta Toer', category: 'Sejarah', rating: 4.9, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Bumi+Manusia', fileUrl: '#', isAvailable: true },
+                        { id: 3, title: 'Matematika Dasar', author: 'Kemendikbud', category: 'Pelajaran', rating: 4.5, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Matematika', fileUrl: '#', isAvailable: true },
+                        { id: 4, title: 'Cantik Itu Luka', author: 'Eka Kurniawan', category: 'Novel', rating: 4.7, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Cantik+Itu+Luka', fileUrl: '#', isAvailable: false },
+                        { id: 5, title: 'Dasar Pemrograman Web', author: 'John Doe', category: 'Komputer', rating: 4.6, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Web+Dev', fileUrl: '#', isAvailable: true },
+                        { id: 6, title: 'Biologi Sel', author: 'Dr. Jane Smith', category: 'Pelajaran', rating: 4.8, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Biologi+Sel', fileUrl: '#', isAvailable: true },
+                        { id: 7, title: 'Sejarah Dunia', author: 'J. M. Roberts', category: 'Sejarah', rating: 4.7, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Sejarah+Dunia', fileUrl: '#', isAvailable: true },
+                        { id: 8, title: 'Pengantar Filsafat', author: 'Louis O. Kattsoff', category: 'Filsafat', rating: 4.6, cover: 'https://placehold.co/300x450/ec4899/ffffff?text=Filsafat', fileUrl: '#', isAvailable: true },
+                    ],
+                    loans: [
+                        { loanId: 1, bookId: 4, userId: 'siswa02', borrowDate: new Date(new Date().setDate(new Date().getDate() - 3)).toISOString(), dueDate: new Date(new Date().setDate(new Date().getDate() + 4)).toISOString(), returnDate: null }
+                    ]
+                };
+
+                state.users = JSON.parse(localStorage.getItem('elibrary_users')) || defaultData.users;
+                state.books = JSON.parse(localStorage.getItem('elibrary_books')) || defaultData.books;
+                state.loans = JSON.parse(localStorage.getItem('elibrary_loans')) || defaultData.loans;
+                
+                // Sinkronisasi ketersediaan buku berdasarkan data pinjaman
+                syncBookAvailability();
+                saveData();
+            }
+            
+            function syncBookAvailability() {
+                const loanedBookIds = new Set(state.loans.filter(l => !l.returnDate).map(l => l.bookId));
+                state.books.forEach(book => {
+                    book.isAvailable = !loanedBookIds.has(book.id);
+                });
+            }
+
+            function saveData() {
+                localStorage.setItem('elibrary_users', JSON.stringify(state.users));
+                localStorage.setItem('elibrary_books', JSON.stringify(state.books));
+                localStorage.setItem('elibrary_loans', JSON.stringify(state.loans));
+            }
+
+            // ===== UTILITIES =====
+            function formatDate(isoString) {
+                if (!isoString) return '-';
+                return new Date(isoString).toLocaleDateString('id-ID', {
+                    day: '2-digit', month: 'long', year: 'numeric'
+                });
+            }
+
+            function getDaysRemaining(dueDate) {
+                const due = new Date(dueDate);
+                const now = new Date();
+                const diffTime = due - now;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                return diffDays;
+            }
+
+            // ===== CORE LOGIC =====
+            function handleLogin(event, role) {
+                event.preventDefault();
+                const form = event.target;
+                const username = form.username.value.trim();
+                const password = role === 'admin' ? form.password.value : null;
+
+                if (role === 'admin') {
+                    const user = state.users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.role === 'admin');
+                    if (user && user.password === password) {
+                        state.currentUser = user;
+                        render();
+                    } else {
+                        showToast('Username atau kode admin salah!', 'error');
+                    }
+                } else if (role === 'student') {
+                    if (username === '') {
+                        showToast('Username tidak boleh kosong!', 'error');
+                        return;
+                    }
+                    // Cek jika user ada, jika tidak, buat baru.
+                    let user = state.users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.role === 'student');
+                    if (!user) {
+                        user = {
+                            id: 'siswa' + Date.now(), // ID unik untuk siswa baru
+                            username: username,
+                            role: 'student'
+                        };
+                        state.users.push(user);
+                        saveData(); // Simpan user baru
+                    }
+                    state.currentUser = user;
+                    render();
+                }
+            }
+            
+            function handleLogout() {
+                state.currentUser = null;
+                render();
+            }
+
+            function handleBorrowBook(bookId) {
+                const book = state.books.find(b => b.id === bookId);
+                if (!book || !book.isAvailable) {
+                    showToast('Buku ini sedang tidak tersedia.', 'error');
+                    return;
+                }
+                
+                const borrowDate = new Date();
+                const dueDate = new Date();
+                dueDate.setDate(borrowDate.getDate() + 7);
+
+                const newLoan = {
+                    loanId: Date.now(),
+                    bookId: bookId,
+                    userId: state.currentUser.id,
+                    borrowDate: borrowDate.toISOString(),
+                    dueDate: dueDate.toISOString(),
+                    returnDate: null
+                };
+
+                state.loans.push(newLoan);
+                book.isAvailable = false;
+                saveData();
+                showToast(`Anda berhasil meminjam "${book.title}"!`, 'success');
+                render();
+            }
+
+            function handleReturnBook(loanId) {
+                const loan = state.loans.find(l => l.loanId === loanId);
+                if (!loan) return;
+
+                const book = state.books.find(b => b.id === loan.bookId);
+                loan.returnDate = new Date().toISOString();
+                if(book) book.isAvailable = true;
+                
+                saveData();
+                showToast(`Buku "${book.title}" telah dikembalikan.`, 'success');
+                render();
+            }
+
+            function handleAddBook(event) {
+                event.preventDefault();
+                const form = event.target;
+                const newBook = {
+                    id: Date.now(),
+                    title: form.title.value,
+                    author: form.author.value,
+                    category: form.category.value,
+                    rating: parseFloat(form.rating.value) || 4.5,
+                    cover: form.cover.value || `https://placehold.co/300x450/fda4af/4c1d95?text=${form.title.value.replace(/\s/g, '+')}`,
+                    fileUrl: '#',
+                    isAvailable: true
+                };
+                state.books.unshift(newBook);
+                saveData();
+                showToast('Buku baru berhasil ditambahkan!', 'success');
+                closeModal();
+                render();
+            }
+            
+            function handleDeleteBook(bookId) {
+                const book = state.books.find(b => b.id === bookId);
+                if (!book) return;
+
+                showConfirmModal(
+                    'Konfirmasi Hapus',
+                    `Apakah Anda yakin ingin menghapus buku "${book.title}"?`,
+                    () => {
+                        state.books = state.books.filter(b => b.id !== bookId);
+                        // Juga hapus dari data peminjaman agar konsisten
+                        state.loans = state.loans.filter(l => l.bookId !== bookId);
+                        saveData();
+                        showToast('Buku berhasil dihapus.', 'success');
+                        render();
+                    }
+                );
+            }
+
+
+            // ===== RENDERING COMPONENTS =====
+            function showToast(message, type = 'info') {
+                const toast = document.createElement('div');
+                const colors = {
+                    info: 'bg-blue-500',
+                    success: 'bg-green-500',
+                    error: 'bg-red-500'
+                };
+                document.head.appendChild(style);
+            }
+
+            function showConfirmModal(title, message, onConfirm) {
+                const content = `
+                    <p class="text-gray-600 mb-6">${message}</p>
+                    <div class="flex justify-end gap-4">
+                        <button id="confirm-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Batal</button>
+                        <button id="confirm-ok-btn" class="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600">Hapus</button>
+                    </div>
+                `;
+                showModal(title, content);
+                document.getElementById('confirm-ok-btn').onclick = () => {
+                    onConfirm();
+                    closeModal();
+                };
+                document.getElementById('confirm-cancel-btn').onclick = closeModal;
+            }
+
+            function showModal(title, content) {
+                const modalHTML = `
+                    <div id="modal-backdrop" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div id="modal-content" class="bg-white rounded-lg shadow-xl w-11/12 md:w-1/2 lg:w-1/3 p-6 transform scale-95 opacity-0 transition-transform transition-opacity duration-300">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-xl font-bold text-pink-600">${title}</h2>
+                                <button id="close-modal-btn" class="text-gray-500 hover:text-gray-800">&times;</button>
+                            </div>
+                            <div>${content}</div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                document.getElementById('close-modal-btn').onclick = closeModal;
+                document.getElementById('modal-backdrop').onclick = (e) => {
+                    if (e.target.id === 'modal-backdrop') closeModal();
+                };
+
+                setTimeout(() => {
+                    const modalContent = document.getElementById('modal-content');
+                    modalContent.classList.remove('scale-95', 'opacity-0');
+                    modalContent.classList.add('scale-100', 'opacity-100');
+                }, 10);
+            }
+
+            function closeModal() {
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                 if (modalBackdrop) {
+                    const modalContent = document.getElementById('modal-content');
+                    modalContent.classList.add('scale-95', 'opacity-0');
+                    setTimeout(() => modalBackdrop.remove(), 300);
+                }
+            }
+            
+            function renderAddBookModal() {
+                 const content = `
+                    <form id="add-book-form">
+                        <div class="space-y-4">
+                            <div>
+                                <label for="title" class="block text-sm font-medium text-gray-700">Judul Buku</label>
+                                <input type="text" id="title" name="title" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500">
+                            </div>
+                            <div>
+                                <label for="author" class="block text-sm font-medium text-gray-700">Penulis</label>
+                                <input type="text" id="author" name="author" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500">
+                            </div>
+                            <div>
+                                <label for="category" class="block text-sm font-medium text-gray-700">Kategori</label>
+                                <input type="text" id="category" name="category" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500">
+                            </div>
+                             <div>
+                                <label for="rating" class="block text-sm font-medium text-gray-700">Rating (1.0 - 5.0)</label>
+                                <input type="number" id="rating" name="rating" step="0.1" min="1" max="5" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500">
+                            </div>
+                            <div>
+                                <label for="cover" class="block text-sm font-medium text-gray-700">URL Gambar Sampul (Opsional)</label>
+                                <input type="url" id="cover" name="cover" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500">
+                            </div>
+                            <button type="submit" class="w-full bg-pink-500 text-white py-2 px-4 rounded-md hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-colors">
+                                Tambahkan Buku
+                            </button>
+                        </div>
+                    </form>
+                `;
+                showModal('Tambah Buku Baru', content);
+                document.getElementById('add-book-form').addEventListener('submit', handleAddBook);
+            }
+            
+            // ===== VIEWS =====
+            function renderLoginPage() {
+                app.innerHTML = `
+                    <div class="w-full min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-pink-200 to-rose-200">
+                        <div class="w-full max-w-md mx-auto login-card rounded-2xl shadow-2xl p-8">
+                            <div class="text-center mb-8">
+                                <h1 class="text-3xl font-bold text-pink-600">E-Library Sekolah</h1>
+                                <p class="text-gray-600 mt-2">Selamat Datang! Silakan masuk.</p>
+                            </div>
+                            
+                            <div x-data="{ tab: 'siswa' }">
+                                <div class="flex border-b border-gray-300">
+                                    <button @click="tab = 'siswa'" :class="{ 'border-pink-500 text-pink-600': tab === 'siswa', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'siswa' }" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm focus:outline-none transition-colors">
+                                        Siswa
+                                    </button>
+                                    <button @click="tab = 'admin'" :class="{ 'border-pink-500 text-pink-600': tab === 'admin', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'admin' }" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm focus:outline-none transition-colors">
+                                        Admin
+                                    </button>
+                                </div>
+
+                                <!-- Form Siswa -->
+                                <div x-show="tab === 'siswa'" class="mt-6">
+                                    <form id="student-login-form" class="space-y-6">
+                                        <div>
+                                            <label for="student-username" class="block text-sm font-medium text-gray-700">Username Siswa</label>
+                                            <input type="text" name="username" id="student-username" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500" placeholder="Contoh: Budi">
+                                        </div>
+                                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-500 hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-colors">
+                                            Masuk sebagai Siswa
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <!-- Form Admin -->
+                                <div x-show="tab === 'admin'" class="mt-6">
+                                    <form id="admin-login-form" class="space-y-6">
+                                        <div>
+                                            <label for="admin-username" class="block text-sm font-medium text-gray-700">Username Admin</label>
+                                            <input type="text" name="username" id="admin-username" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500" placeholder="jihannikenfaris">
+                                        </div>
+                                        <div>
+                                            <label for="admin-password" class="block text-sm font-medium text-gray-700">Kode</label>
+                                            <input type="password" name="password" id="admin-password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500" placeholder="••••••••">
+                                        </div>
+                                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-rose-500 transition-colors">
+                                            Masuk sebagai Admin
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('student-login-form').addEventListener('submit', (e) => handleLogin(e, 'student'));
+                document.getElementById('admin-login-form').addEventListener('submit', (e) => handleLogin(e, 'admin'));
+                // Simple AlpineJS-like implementation for tabs
+                const tabButtons = app.querySelectorAll('[x-data] [button]');
+                const tabContents = app.querySelectorAll('[x-show]');
+                const tabData = { tab: 'siswa' };
+                
+                app.querySelectorAll('[\\@click]').forEach(el => {
+                    const action = el.getAttribute('@click');
+                    el.addEventListener('click', () => {
+                        const [key, value] = action.split('=').map(s => s.trim().replace(/'/g, ''));
+                        tabData[key] = value;
+                        updateTabs();
+                    });
+                });
+                
+                function updateTabs() {
+                    app.querySelectorAll('[x-show]').forEach(el => {
+                        const condition = el.getAttribute('x-show');
+                        if (condition.includes(tabData.tab)) {
+                            el.style.display = 'block';
+                        } else {
+                            el.style.display = 'none';
+                        }
+                    });
+                     app.querySelectorAll('button[\\@click]').forEach(el => {
+                        const classes = el.getAttribute(':class');
+                        // a simple parser for this specific class binding
+                        const tabValue = el.getAttribute('@click').split('=')[1].trim().replace(/'/g, '');
+                         if (tabData.tab === tabValue) {
+                            el.classList.add('border-pink-500', 'text-pink-600');
+                            el.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                        } else {
+                             el.classList.remove('border-pink-500', 'text-pink-600');
+                             el.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                        }
+                    });
+                }
+                updateTabs();
+            }
+
+            function renderAdminDashboard() {
+                const activeLoans = state.loans.filter(l => !l.returnDate);
+                const totalBooks = state.books.length;
+                const availableBooks = state.books.filter(b => b.isAvailable).length;
+
+                const tabContent = {
+                    dashboard: `
+                        <h2 class="text-2xl font-bold text-pink-700 mb-6">Dashboard Peminjaman</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-pink-100 p-6 rounded-xl shadow-md"><p class="text-gray-600">Total Buku</p><p class="text-3xl font-bold text-pink-600">${totalBooks}</p></div>
+                            <div class="bg-rose-100 p-6 rounded-xl shadow-md"><p class="text-gray-600">Buku Tersedia</p><p class="text-3xl font-bold text-rose-600">${availableBooks}</p></div>
+                            <div class="bg-fuchsia-100 p-6 rounded-xl shadow-md"><p class="text-gray-600">Buku Dipinjam</p><p class="text-3xl font-bold text-fuchsia-600">${activeLoans.length}</p></div>
+                        </div>
+                        ${renderAdminTable('Peminjaman Aktif Saat Ini', activeLoans)}
+                    `,
+                    reports: `
+                        <h2 class="text-2xl font-bold text-pink-700 mb-6">Laporan Pengembalian</h2>
+                        ${renderAdminTable('Semua Riwayat Peminjaman', state.loans)}
+                    `,
+                    books: `
+                        <div class="flex justify-between items-center mb-6">
+                             <h2 class="text-2xl font-bold text-pink-700">Manajemen Buku</h2>
+                             <button id="add-book-btn" class="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition-colors shadow-md">Tambah Buku</button>
+                        </div>
+                        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-lg">
+                           <div class="overflow-x-auto">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-pink-700 uppercase bg-pink-100">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3 rounded-l-lg">Judul</th>
+                                            <th scope="col" class="px-6 py-3">Penulis</th>
+                                            <th scope="col" class="px-6 py-3">Kategori</th>
+                                            <th scope="col" class="px-6 py-3">Status</th>
+                                            <th scope="col" class="px-6 py-3 rounded-r-lg">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${state.books.map(book => `
+                                            <tr class="bg-white border-b hover:bg-pink-50">
+                                                <th scope="row" class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${book.title}</th>
+                                                <td class="px-6 py-4">${book.author}</td>
+                                                <td class="px-6 py-4">${book.category}</td>
+                                                <td class="px-6 py-4">
+                                                    <span class="px-2 py-1 text-xs font-medium rounded-full ${book.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                                        ${book.isAvailable ? 'Tersedia' : 'Dipinjam'}
+                                                    </span>
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <button class="font-medium text-red-600 hover:underline delete-book-btn" data-book-id="${book.id}">Hapus</button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                         </div>
+                    `
+                };
+
+                app.innerHTML = `
+                    <div class="flex flex-col md:flex-row min-h-screen">
+                        <!-- Sidebar -->
+                        <aside class="w-full md:w-64 bg-white md:bg-pink-100 p-4 md:p-6 shadow-lg md:shadow-none">
+                            <h1 class="text-2xl font-bold text-pink-600 mb-8">Admin E-Library</h1>
+                            <nav class="space-y-2">
+                                <a href="#" class="admin-tab-btn flex items-center px-4 py-2 rounded-lg ${state.activeAdminTab === 'dashboard' ? 'bg-pink-500 text-white' : 'text-gray-700 hover:bg-pink-200'}" data-tab="dashboard">Dashboard</a>
+                                <a href="#" class="admin-tab-btn flex items-center px-4 py-2 rounded-lg ${state.activeAdminTab === 'reports' ? 'bg-pink-500 text-white' : 'text-gray-700 hover:bg-pink-200'}" data-tab="reports">Laporan</a>
+                                <a href="#" class="admin-tab-btn flex items-center px-4 py-2 rounded-lg ${state.activeAdminTab === 'books' ? 'bg-pink-500 text-white' : 'text-gray-700 hover:bg-pink-200'}" data-tab="books">Manajemen Buku</a>
+                            </nav>
+                            <div class="mt-auto pt-8">
+                               <button id="logout-btn" class="w-full text-left flex items-center px-4 py-2 rounded-lg text-gray-700 hover:bg-rose-200">Keluar</button>
+                            </div>
+                        </aside>
+                        <!-- Main Content -->
+                        <main class="flex-1 p-6 sm:p-8">
+                           <div class="flex justify-between items-center mb-4">
+                             <p class="text-lg">Selamat datang, <span class="font-bold text-pink-600">${state.currentUser.username}</span>!</p>
+                           </div>
+                           <div id="admin-content">
+                                ${tabContent[state.activeAdminTab]}
+                           </div>
+                        </main>
+                    </div>
+                `;
+                
+                attachAdminEventListeners();
+            }
+            
+            function renderAdminTable(title, loansData) {
+                return `
+                    <div class="bg-white p-4 sm:p-6 rounded-xl shadow-lg">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">${title}</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-500">
+                                <thead class="text-xs text-pink-700 uppercase bg-pink-100">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 rounded-l-lg">Nama Peminjam</th>
+                                        <th scope="col" class="px-6 py-3">Judul Buku</th>
+                                        <th scope="col" class="px-6 py-3">Tgl Pinjam</th>
+                                        <th scope="col" class="px-6 py-3">Tgl Kembali</th>
+                                        <th scope="col" class="px-6 py-3">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${loansData.length === 0 ? `<tr><td colspan="5" class="text-center py-8 text-gray-500">Tidak ada data.</td></tr>` : 
+                                    loansData.sort((a,b) => new Date(b.borrowDate) - new Date(a.borrowDate)).map(loan => {
+                                        const user = state.users.find(u => u.id === loan.userId);
+                                        const book = state.books.find(b => b.id === loan.bookId);
+                                        const daysRemaining = getDaysRemaining(loan.dueDate);
+                                        let statusBadge;
+                                        if (loan.returnDate) {
+                                            statusBadge = `<span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">Selesai</span>`;
+                                        } else if (daysRemaining < 0) {
+                                            statusBadge = `<span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">Terlambat ${Math.abs(daysRemaining)} hari</span>`;
+                                        } else {
+                                            statusBadge = `<span class="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">Dipinjam</span>`;
+                                        }
+                                        return `
+                                            <tr class="bg-white border-b hover:bg-pink-50">
+                                                <td class="px-6 py-4 font-medium text-gray-900">${user?.username || 'N/A'}</td>
+                                                <td class="px-6 py-4">${book?.title || 'Buku Dihapus'}</td>
+                                                <td class="px-6 py-4">${formatDate(loan.borrowDate)}</td>
+                                                <td class="px-6 py-4">${formatDate(loan.dueDate)}</td>
+                                                <td class="px-6 py-4">${statusBadge}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            function renderStudentLibrary() {
+                const userLoans = state.loans.filter(l => l.userId === state.currentUser.id && !l.returnDate);
+                const categories = ['Semua', ...new Set(state.books.map(b => b.category))];
+                const filteredBooks = state.books.filter(book => {
+                    const matchesCategory = state.studentCategoryFilter === 'Semua' || book.category === state.studentCategoryFilter;
+                    const matchesSearch = book.title.toLowerCase().includes(state.studentSearchQuery.toLowerCase()) || book.author.toLowerCase().includes(state.studentSearchQuery.toLowerCase());
+                    return matchesCategory && matchesSearch;
+                });
+
+                app.innerHTML = `
+                    <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        <!-- Header -->
+                        <header class="flex flex-col sm:flex-row justify-between items-center mb-8">
+                            <h1 class="text-3xl font-bold text-pink-600">E-Library</h1>
+                            <div class="flex items-center space-x-4 mt-4 sm:mt-0">
+                                <p>Halo, <span class="font-semibold">${state.currentUser.username}</span>!</p>
+                                <button id="logout-btn" class="bg-rose-500 text-white px-4 py-2 rounded-lg hover:bg-rose-600 transition-colors shadow">Keluar</button>
+                            </div>
+                        </header>
+
+                        <!-- My Borrows -->
+                        ${userLoans.length > 0 ? `
+                        <section id="my-borrows" class="mb-10">
+                            <h2 class="text-2xl font-bold text-pink-800 mb-4">Buku Pinjaman Saya</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                ${userLoans.map(loan => {
+                                    const book = state.books.find(b => b.id === loan.bookId);
+                                    if (!book) return '';
+                                    const daysRemaining = getDaysRemaining(loan.dueDate);
+                                    const daysColor = daysRemaining > 3 ? 'text-green-600' : (daysRemaining >= 0 ? 'text-yellow-600' : 'text-red-600');
+                                    
+                                    return `
+                                        <div class="bg-white rounded-xl shadow-lg p-4 flex space-x-4 items-center">
+                                            <img src="${book.cover}" alt="${book.title}" class="w-20 h-28 object-cover rounded-md flex-shrink-0">
+                                            <div class="flex-grow">
+                                                <h3 class="font-bold text-md">${book.title}</h3>
+                                                <p class="text-sm text-gray-500">Harus kembali: ${formatDate(loan.dueDate)}</p>
+                                                <p class="text-sm font-semibold ${daysColor}">${daysRemaining >= 0 ? `${daysRemaining} hari lagi` : `Terlambat ${Math.abs(daysRemaining)} hari`}</p>
+                                                <div class="mt-3 flex space-x-2">
+                                                    <button class="return-book-btn text-sm bg-pink-500 text-white px-3 py-1 rounded-md hover:bg-pink-600 transition-colors" data-loan-id="${loan.loanId}">Kembalikan</button>
+                                                    <a href="${book.fileUrl}" download class="download-book-btn text-sm bg-gray-600 text-white px-3 py-1 rounded-md hover:bg-gray-700 transition-colors">Download</a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </section>
+                        ` : ''}
+
+                        <!-- Book Catalog -->
+                        <section id="book-catalog">
+                            <h2 class="text-2xl font-bold text-pink-800 mb-4">Katalog Buku</h2>
+                            <!-- Filters -->
+                            <div class="flex flex-col md:flex-row gap-4 mb-6">
+                                <div class="relative flex-grow">
+                                    <input type="search" id="search-book" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500" placeholder="Cari judul atau penulis..." value="${state.studentSearchQuery}">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </div>
+                                </div>
+                                <div class="flex-shrink-0">
+                                    <select id="category-filter" class="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500">
+                                        ${categories.map(cat => `<option value="${cat}" ${state.studentCategoryFilter === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Book Grid -->
+                            <div id="book-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                                ${filteredBooks.length > 0 ? filteredBooks.map(book => `
+                                    <div class="bg-white rounded-xl shadow-lg p-4 flex flex-col text-center transition-transform hover:-translate-y-1">
+                                        <img src="${book.cover}" alt="${book.title}" class="w-full h-auto object-cover rounded-md mb-3 aspect-[2/3]">
+                                        <h3 class="font-bold text-sm flex-grow">${book.title}</h3>
+                                        <p class="text-xs text-gray-500 mb-2">${book.author}</p>
+                                        <div class="flex items-center justify-center text-xs text-yellow-500 mb-3">
+                                            <span>${book.rating}</span>
+                                            <svg class="w-4 h-4 fill-current ml-1" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                                        </div>
+                                        ${book.isAvailable ? 
+                                            `<button class="borrow-book-btn w-full bg-pink-500 text-white px-3 py-1.5 rounded-md hover:bg-pink-600 transition-colors text-sm" data-book-id="${book.id}">Pinjam</button>` : 
+                                            `<button class="w-full bg-gray-300 text-gray-600 px-3 py-1.5 rounded-md text-sm cursor-not-allowed">Dipinjam</button>`
+                                        }
+                                    </div>
+                                `).join('') : `<p class="col-span-full text-center text-gray-500 py-10">Tidak ada buku yang cocok dengan pencarian Anda.</p>`}
+                            </div>
+                        </section>
+                    </div>
+                `;
+                attachStudentEventListeners();
+            }
+
+            // ===== EVENT LISTENERS =====
+            function attachAdminEventListeners() {
+                document.getElementById('logout-btn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        state.activeAdminTab = e.target.closest('a').dataset.tab;
+                        renderAdminDashboard();
+                    });
+                });
+
+                if (state.activeAdminTab === 'books') {
+                    document.getElementById('add-book-btn').addEventListener('click', renderAddBookModal);
+                    document.querySelectorAll('.delete-book-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                           handleDeleteBook(parseInt(e.target.dataset.bookId));
+                        });
+                    });
+                }
+            }
+            
+            function attachStudentEventListeners() {
+                document.getElementById('logout-btn').addEventListener('click', handleLogout);
+                document.querySelectorAll('.borrow-book-btn').forEach(btn => {
+                    btn.addEventListener('click', e => {
+                        handleBorrowBook(parseInt(e.target.dataset.bookId));
+                    });
+                });
+                document.querySelectorAll('.return-book-btn').forEach(btn => {
+                    btn.addEventListener('click', e => {
+                        handleReturnBook(parseInt(e.target.dataset.loanId));
+                    });
+                });
+                document.getElementById('search-book').addEventListener('input', e => {
+                    state.studentSearchQuery = e.target.value;
+                    renderStudentLibrary();
+                });
+                document.getElementById('category-filter').addEventListener('change', e => {
+                    state.studentCategoryFilter = e.target.value;
+                    renderStudentLibrary();
+                });
+            }
+
+            // ===== APP INITIALIZATION =====
+            function render() {
+                if (state.currentUser) {
+                    if (state.currentUser.role === 'admin') {
+                        renderAdminDashboard();
+                    } else {
+                        renderStudentLibrary();
+                    }
+                } else {
+                    renderLoginPage();
+                }
+            }
+
+            initializeData();
+            render();
+        });
+    </script>
+</body>
+</html>
+
